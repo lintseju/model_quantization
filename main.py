@@ -50,8 +50,8 @@ class CalibrationLoader(CalibrationDataReader):
 
 class IMDBDataset(Dataset):
     def __init__(self):
-        logging.info("Using top 5000 rows of IMDB dataset for the demo purpose.")
-        df = pd.read_csv("imdb/IMDB Dataset.csv").head(5000)
+        logging.info("Using first 2000 rows of IMDB dataset for the demo purpose.")
+        df = pd.read_csv("imdb/IMDB Dataset.csv").head(2000)
         self.data = df['review'].values
         self.label = df['sentiment'].map(lambda x: int(x == 'positive')).values
 
@@ -98,8 +98,6 @@ def eval_model(dataset, model, tokenizer, batch_size=32, model_type="pt") -> flo
             corrects += (np.argmax(output, axis=1) == labels.numpy()).sum()
         total += len(labels)
         total_time += inference_time
-        if len(labels) >= 1024:
-            break
     logging.info(f"Evaluation time: {total_time / total:.4f}s per instance.")
     return corrects / total
 
