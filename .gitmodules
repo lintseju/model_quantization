@@ -1,0 +1,3 @@
+[submodule "imdb"]
+	path = imdb
+	url = https://huggingface.co/datasets/scikit-learn/imdb

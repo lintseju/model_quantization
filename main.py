@@ -1,4 +1,5 @@
 import logging
+import multiprocessing
 import os
 from time import perf_counter
 
@@ -9,12 +10,13 @@ from onnxruntime.quantization import (
     QuantType,
     CalibrationDataReader
 )
+import pandas as pd
 import torch
-from torch.utils.data import DataLoader
-import torchtext
+from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 
+os.environ["OMP_NUM_THREADS"] = "1"
 device = "cuda" if torch.cuda.is_available() else "cpu"
 provider = "CUDAExecutionProvider" if torch.cuda.is_available() else "CPUExecutionProvider"
 
@@ -46,6 +48,20 @@ class CalibrationLoader(CalibrationDataReader):
             return self.batches.pop()
 
 
+class IMDBDataset(Dataset):
+    def __init__(self):
+        logging.info("Using top 5000 rows of IMDB dataset for the demo purpose.")
+        df = pd.read_csv("imdb/IMDB Dataset.csv").head(5000)
+        self.data = df['review'].values
+        self.label = df['sentiment'].map(lambda x: int(x == 'positive')).values
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx):
+        return self.label[idx], self.data[idx]
+
+
 def inference_torch(model, batch_dict, labels):
     start = perf_counter()
     labels = labels.to(device)
@@ -65,26 +81,26 @@ def inference_onnx(model, batch_dict):
     return output[0], inference_time
 
 
-def eval_model(dataset, dataset_length, model, tokenizer, batch_size=32, model_type="pt") -> float:
+def eval_model(dataset, model, tokenizer, batch_size=32, model_type="pt") -> float:
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
     corrects = 0
     total = 0
     total_time = 0
-    for labels, texts in tqdm(dataloader, total=(dataset_length - 1) // batch_size + 1):
+    for labels, texts in tqdm(dataloader, total=(len(dataset) - 1) // batch_size + 1):
         batch_dict = tokenizer(texts, return_tensors="pt", max_length=256, truncation=True, padding=True)
         if model_type == "pt":
             output, inference_time = inference_torch(model, batch_dict, labels)
-            # Label of the IMDB dataset are 1 and 2.
-            corrects += (torch.argmax(output.logits, dim=1) + 1 == labels).sum().item()
+            corrects += (torch.argmax(output.logits, dim=1) == labels).sum().item()
         else:
             feed_dict = {"input_ids": batch_dict["input_ids"].numpy(),
                          "attention_mask": batch_dict["attention_mask"].numpy()}
             output, inference_time = inference_onnx(model, feed_dict)
-            # Label of the IMDB dataset are 1 and 2.
-            corrects += (np.argmax(output, axis=1) + 1 == labels.numpy()).sum()
+            corrects += (np.argmax(output, axis=1) == labels.numpy()).sum()
         total += len(labels)
         total_time += inference_time
-    logging.info(f"Evaluation time: {total_time:.4f}s")
+        if len(labels) >= 1024:
+            break
+    logging.info(f"Evaluation time: {total_time / total:.4f}s per instance.")
     return corrects / total
 
 
@@ -93,12 +109,12 @@ def main():
     tokenizer = AutoTokenizer.from_pretrained("lvwerra/distilbert-imdb")
     model = AutoModelForSequenceClassification.from_pretrained("lvwerra/distilbert-imdb")
     torch.save(model.state_dict(), "models/distilbert-imdb.pt")
-    dataset = torchtext.datasets.IMDB(split='test')
-    dataset_length = 25000
+    dataset = IMDBDataset()
+
     model = model.to(device)
     model.eval()
     logging.info("Evaluating PyTorch model running time and accuracy.")
-    logging.info("Accuracy %.4f", eval_model(dataset, dataset_length, model, tokenizer))
+    logging.info("Accuracy %.4f", eval_model(dataset, model, tokenizer))
 
     logging.info("Convert PyTorch model to ONNX.")
     example_inputs = tokenizer("query: this is a test sentence", return_tensors="pt")
@@ -122,8 +138,11 @@ def main():
 
     logging.info("Evaluating ONNX model running time and accuracy.")
     sess_options = onnxruntime.SessionOptions()
+    sess_options.graph_optimization_level = onnxruntime.GraphOptimizationLevel.ORT_ENABLE_ALL
+    sess_options.execution_mode = onnxruntime.ExecutionMode.ORT_SEQUENTIAL
+    sess_options.intra_op_num_threads = multiprocessing.cpu_count()
     model = onnxruntime.InferenceSession("models/distilbert-imdb.onnx", sess_options=sess_options, providers=[provider])
-    logging.info("Accuracy %.4f", eval_model(dataset, dataset_length, model, tokenizer, model_type="onnx"))
+    logging.info("Accuracy %.4f", eval_model(dataset, model, tokenizer, model_type="onnx"))
 
     logging.info("Evaluating quantized ONNX model running time and accuracy.")
     quantize_dynamic(
@@ -135,7 +154,7 @@ def main():
         ),
     )
     model = onnxruntime.InferenceSession("models/distilbert-imdb.int8.onnx", sess_options=sess_options, providers=[provider])
-    logging.info("Accuracy %.4f", eval_model(dataset, dataset_length, model, tokenizer, model_type="onnx"))
+    logging.info("Accuracy %.4f", eval_model(dataset, model, tokenizer, model_type="onnx"))
 
 
 if __name__ == "__main__":
