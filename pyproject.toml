@@ -13,6 +13,7 @@ torch = "^2.1.2"
 onnxruntime = "1.16.1"
 portalocker = "^2.8.2"
 onnx = "^1.15.0"
+pandas = "^2.1.4"
 
 
 [build-system]

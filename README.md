@@ -10,8 +10,9 @@ Install the Python environment:
 
 ```bash
 git lfs install
+git submodule update --init
 pip install poetry
-poetry install
+poetry install --no-root
 ```
 
 If you are using GPU, please run the following command after `poetry install`
