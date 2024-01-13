@@ -29,3 +29,18 @@ poetry add onnxruntime-gpu
 ```bash
 poetry run python main.py
 ```
+
+## Experiment Results on CPU
+
+Experimenting with one of the DistilBERT models fine-tuned on the IMDB dataset from HuggingFace, available [here](https://huggingface.co/lvwerra/distilbert-imdb).
+
+The results running on a MacBook Air M1 CPU and Windows 10 WSL with an i5-8400 CPU are provided below (results may vary on different platforms):
+
+|                       | Model Size | Inference Time per Instance | Accuracy |
+|-----------------------|------------|-----------------------------|----------|
+| PyTorch Model (MAC)   | 256MB      | 71.1ms                      | 93.8%    |
+| ONNX Model(MAC)       | 256MB      | 113.5ms                     | 93.8%    |
+| ONNX 8-bit Model(MAC) | 64MB       | 87.7ms                      | 93.75%   |
+| PyTorch Model (Win)   | 256MB      | 78.6ms                      | 93.8%    |
+| ONNX Model(Win)       | 256MB      | 85.1ms                      | 93.8%    |
+| ONNX 8-bit Model(Win) | 64MB       | 61.1ms                      | 93.85%   |
